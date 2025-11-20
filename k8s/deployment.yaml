@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cinescope-deployment
+  labels:
+    app: cinescope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cinescope
+  template:
+    metadata:
+      labels:
+        app: cinescope
+    spec:
+      containers:
+        - name: cinescope
+          image: 781342403146.dkr.ecr.us-east-1.amazonaws.com/cinescope:latest
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: Always
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+      restartPolicy: Always

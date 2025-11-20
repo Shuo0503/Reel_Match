@@ -1,0 +1,9 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: my-tgb
+spec:
+  serviceRef:
+    name: cinescope-service
+    port: 80
+  targetGroupARN: arn:aws:elasticloadbalancing:us-east-1:781342403146:targetgroup/k8s-default-cinescop-1db2a73a94/5a223a3f7bf02796

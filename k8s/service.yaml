@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cinescope-service
+spec:
+  type: ClusterIP
+  selector:
+    app: cinescope
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
