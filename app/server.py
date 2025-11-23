@@ -352,7 +352,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=3000,
+        port=8000,
         # Increased WebSocket frame size to comfortably handle image data URLs.
         ws_max_size=16 * 1024 * 1024,
     )

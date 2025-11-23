@@ -1,0 +1,117 @@
+{
+  "theaters": [
+    {
+      "name": "Laemmle's NoHo 7",
+      "address": "5240 Lankershim Blvd, North Hollywood, CA 91601",
+      "movies": [
+        {
+          "title": "Death of a Unicorn",
+          "rating": "Festival / critic coverage (see local listings for reviews)",
+          "showtimes": [
+            "12:50 pm",
+            "3:00 pm",
+            "5:10 pm",
+            "7:20 pm"
+          ]
+        },
+        {
+          "title": "Out of Plain Sight",
+          "rating": "Rotten Tomatoes / festival acclaim (see RT for critic details).",
+          "showtimes": [
+            "1:30 pm",
+            "4:20 pm",
+            "7:10 pm"
+          ]
+        }
+      ],
+      "reason": "Programs a strong mix of offbeat comedies and investigative/arthouse films suitable to both tastes."
+    },
+    {
+      "name": "Laemmle Monica Film Center",
+      "address": "1332 2nd Street, Santa Monica, CA 90401",
+      "movies": [
+        {
+          "title": "Rental Family",
+          "rating": "Generally favorable (Metacritic ~65–68; strong press notices).",
+          "showtimes": [
+            "1:25 pm",
+            "4:25 pm",
+            "7:25 pm"
+          ]
+        },
+        {
+          "title": "Left-Handed Girl / Under the Flags, the Sun (examples of foreign/thriller offerings)",
+          "rating": "Festival/critically noticed; see Laemmle film pages for details.",
+          "showtimes": [
+            "Left-Handed Girl: 1:15 pm, 4:15 pm, 7:15 pm; Under the Flags, the Sun: 10:00 am"
+          ]
+        }
+      ],
+      "reason": "Santa Monica art-house anchor — near Venice Beach and balances indie comedies with foreign thrillers."
+    },
+    {
+      "name": "Regal Sherman Oaks Galleria",
+      "address": "15301 Ventura Blvd, Building A, Sherman Oaks, CA 91403",
+      "movies": [
+        {
+          "title": "Rental Family (example mainstream/comedy at nearby multiplexes)",
+          "rating": "Positive press / Metacritic coverage for the film; check local Regal listing for auditorium.",
+          "showtimes": [
+            "Multiple screenings throughout the day (check Regal for exact auditorium times)"
+          ]
+        },
+        {
+          "title": "The Boy and the Heron / The Running Man / Keeper (examples of dramatic/thriller titles listed)",
+          "rating": "Film-specific critic scores available on aggregator pages.",
+          "showtimes": [
+            "Example: The Boy and the Heron: 4:00 pm (Regal listings vary by day)"
+          ]
+        }
+      ],
+      "reason": "Convenient for Sherman Oaks with modern multiplex comfort and a varied slate of comedies and thrillers."
+    },
+    {
+      "name": "AMC Marina Marketplace 6",
+      "address": "4335 Glencoe Ave, Marina del Rey, CA 90292",
+      "movies": [
+        {
+          "title": "Rental Family / other current comedies",
+          "rating": "Generally favorable critical response (see press aggregators).",
+          "showtimes": [
+            "Afternoon and evening showtimes (check AMC listings for exact times)"
+          ]
+        },
+        {
+          "title": "Nuremberg / Predator: Badlands (example thrillers on AMC schedule)",
+          "rating": "Film-specific aggregator scores available.",
+          "showtimes": [
+            "Example: Nuremberg: 6:15 pm (check AMC for exact daily times)"
+          ]
+        }
+      ],
+      "reason": "Close to Venice Beach with reserved seating and reliable mainstream showtimes — convenient for both users."
+    },
+    {
+      "name": "Century 8 (Victory Blvd)",
+      "address": "12827 Victory Blvd, North Hollywood, CA 91606",
+      "movies": [
+        {
+          "title": "Death of a Unicorn",
+          "rating": "Festival / critic coverage referenced on local listings.",
+          "showtimes": [
+            "7:25 pm",
+            "10:10 pm (where listed)"
+          ]
+        },
+        {
+          "title": "The Woman in the Yard / A Working Man (thrillers/dramas)",
+          "rating": "See film pages for critic aggregates.",
+          "showtimes": [
+            "The Woman in the Yard: 11:15 am, 4:55 pm, 7:20 pm"
+          ]
+        }
+      ],
+      "reason": "Neighborhood multiplex with a mix of genre films and accessible showtimes for both visitors from Sherman Oaks and Venice."
+    }
+  ]
+}
