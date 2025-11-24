@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+from starlette.types import Scope
 from typing_extensions import assert_never
 
 from agents.realtime import RealtimeRunner, RealtimeSession, RealtimeSessionEvent
@@ -96,12 +98,16 @@ class RealtimeWebSocketManager:
             )
         )
 
-    async def send_user_message(self, session_id: str, message: RealtimeUserInputMessage):
+    async def send_user_message(
+        self, session_id: str, message: RealtimeUserInputMessage
+    ):
         """Send a structured user message via the higher-level API (supports input_image)."""
         session = self.active_sessions.get(session_id)
         if not session:
             return
-        await session.send_message(message)  # delegates to RealtimeModelSendUserInput path
+        await session.send_message(
+            message
+        )  # delegates to RealtimeModelSendUserInput path
 
     async def interrupt(self, session_id: str) -> None:
         """Interrupt current model playback/response for a session."""
@@ -163,7 +169,9 @@ class RealtimeWebSocketManager:
         elif event.type == "audio_end":
             pass
         elif event.type == "history_updated":
-            base_event["history"] = [self._sanitize_history_item(item) for item in event.history]
+            base_event["history"] = [
+                self._sanitize_history_item(item) for item in event.history
+            ]
         elif event.type == "history_added":
             # Provide the added item so the UI can render incrementally.
             try:
@@ -179,7 +187,9 @@ class RealtimeWebSocketManager:
                 "type": event.data.type,
             }
         elif event.type == "error":
-            base_event["error"] = str(event.error) if hasattr(event, "error") else "Unknown error"
+            base_event["error"] = (
+                str(event.error) if hasattr(event, "error") else "Unknown error"
+            )
         elif event.type == "input_audio_timeout_triggered":
             pass
         else:
@@ -214,7 +224,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 audio_bytes = struct.pack(f"{len(int16_data)}h", *int16_data)
                 await manager.send_audio(session_id, audio_bytes)
             elif message["type"] == "image":
-                logger.info("Received image message from client (session %s).", session_id)
+                logger.info(
+                    "Received image message from client (session %s).", session_id
+                )
                 # Build a conversation.item.create with input_image (and optional input_text)
                 data_url = message.get("data_url")
                 prompt_text = message.get("text") or "Please describe this image."
@@ -228,11 +240,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         "role": "user",
                         "content": (
                             [
-                                {"type": "input_image", "image_url": data_url, "detail": "high"},
+                                {
+                                    "type": "input_image",
+                                    "image_url": data_url,
+                                    "detail": "high",
+                                },
                                 {"type": "input_text", "text": prompt_text},
                             ]
                             if prompt_text
-                            else [{"type": "input_image", "image_url": data_url, "detail": "high"}]
+                            else [
+                                {
+                                    "type": "input_image",
+                                    "image_url": data_url,
+                                    "detail": "high",
+                                }
+                            ]
                         ),
                     }
                     await manager.send_user_message(session_id, user_msg)
@@ -257,7 +279,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     )
             elif message["type"] == "commit_audio":
                 # Force close the current input audio turn
-                await manager.send_client_event(session_id, {"type": "input_audio_buffer.commit"})
+                await manager.send_client_event(
+                    session_id, {"type": "input_audio_buffer.commit"}
+                )
             elif message["type"] == "image_start":
                 img_id = str(message.get("id"))
                 image_buffers[img_id] = {
@@ -265,7 +289,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "chunks": [],
                 }
                 await websocket.send_text(
-                    json.dumps({"type": "client_info", "info": "image_start_ack", "id": img_id})
+                    json.dumps(
+                        {"type": "client_info", "info": "image_start_ack", "id": img_id}
+                    )
                 )
             elif message["type"] == "image_chunk":
                 img_id = str(message.get("id"))
@@ -288,7 +314,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 buf = image_buffers.pop(img_id, None)
                 if buf is None:
                     await websocket.send_text(
-                        json.dumps({"type": "error", "error": "Unknown image id for image_end."})
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": "Unknown image id for image_end.",
+                            }
+                        )
                     )
                 else:
                     data_url = "".join(buf["chunks"]) if buf["chunks"] else None
@@ -312,7 +343,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                 ]
                                 if prompt_text
                                 else [
-                                    {"type": "input_image", "image_url": data_url, "detail": "high"}
+                                    {
+                                        "type": "input_image",
+                                        "image_url": data_url,
+                                        "detail": "high",
+                                    }
                                 ]
                             ),
                         }
@@ -338,7 +373,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         await manager.disconnect(session_id)
 
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+class CustomStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> FileResponse:
+        response = await super().get_response(path, scope)
+        # Check if the file is a JavaScript file since the wrong mime-type is
+        # sometimes returned depending on the host OS
+        print(f"path: ${path}")
+        if path.endswith(".js"):
+            response.headers["Content-Type"] = "application/javascript"
+        return response
+
+
+app.mount("/", CustomStaticFiles(directory="static", html=True), name="static")
 
 
 @app.get("/")
@@ -352,7 +398,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8000,
+        port=3000,
         # Increased WebSocket frame size to comfortably handle image data URLs.
         ws_max_size=16 * 1024 * 1024,
     )
