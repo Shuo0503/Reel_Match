@@ -108,7 +108,10 @@ class RealtimeDemo {
 
   async connect() {
     try {
-      this.ws = new WebSocket(`ws://localhost:3000/ws/${this.sessionId}`);
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsHost = window.location.host;
+      this.ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/${this.sessionId}`);
+
 
       this.ws.onopen = () => {
         this.isConnected = true;
