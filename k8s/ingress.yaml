@@ -5,20 +5,37 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:781342403146:certificate/2a6a4bdb-bdfc-4a5b-8af0-a3417586e7e2
+
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/backend-protocol: HTTP
-    alb.ingress.kubernetes.io/healthcheck-path: /
-    alb.ingress.kubernetes.io/healthcheck-port: "3000"
-    alb.ingress.kubernetes.io/success-codes: "200"                                                                                                                                                                                                             
-    alb.ingress.kubernetes.io/security-groups: sg-0796fb102813416f9
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:781342403146:certificate/2a6a4bdb-bdfc-4a5b-8af0-a3417586e7e2
+    alb.ingress.kubernetes.io/backend-protocol-version: HTTP1
+
+    alb.ingress.kubernetes.io/websocket: "true"
+
+    alb.ingress.kubernetes.io/healthcheck-path: "/api/health"
+    alb.ingress.kubernetes.io/healthcheck-port: "traffic-port"
+    alb.ingress.kubernetes.io/success-codes: "200-499"
+
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    
+
 spec:
   ingressClassName: alb
   rules:
     - host: reel-match.com
       http:
         paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: cinescope-service
+                port:
+                  number: 80
+
           - path: /
             pathType: Prefix
             backend:
