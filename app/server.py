@@ -382,14 +382,16 @@ class CustomStaticFiles(StaticFiles):
         if path.endswith(".js"):
             response.headers["Content-Type"] = "application/javascript"
         return response
-
-
-app.mount("/", CustomStaticFiles(directory="static", html=True), name="static")
-
-
+    
 @app.get("/")
 async def read_index():
     return FileResponse("static/index.html")
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok"}
+
+app.mount("/", CustomStaticFiles(directory="static", html=True), name="static")
 
 
 if __name__ == "__main__":
