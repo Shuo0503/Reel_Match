@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: cinescope
-          image: 781342403146.dkr.ecr.us-east-1.amazonaws.com/cinescope:e6688b6
+          image: 781342403146.dkr.ecr.us-east-1.amazonaws.com/cinescope:f41c32e
           ports:
             - containerPort: 3000
           imagePullPolicy: Always
