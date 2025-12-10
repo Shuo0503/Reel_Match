@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from agents import Runner, OpenAIConversationsSession
+from agents.realtime import RealtimeRunner, RealtimeSession, RealtimeSessionEvent
 from agents.realtime.config import RealtimeUserInputMessage
 from agents.realtime.items import RealtimeItem
 from agents.realtime.model import RealtimeModelConfig
@@ -25,17 +25,16 @@ logger = logging.getLogger(__name__)
 
 class RealtimeWebSocketManager:
     def __init__(self):
-        self.active_sessions: dict[str, OpenAIConversationsSession] = {}
+        self.active_sessions: dict[str, RealtimeSession] = {}
         self.session_contexts: dict[str, Any] = {}
         self.websockets: dict[str, WebSocket] = {}
-        self.session_states: dict[str, dict] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str):
         await websocket.accept()
         self.websockets[session_id] = websocket
 
         agent = get_starting_agent()
-        runner = Runner(agent)
+        runner = RealtimeRunner(agent)
         # If you want to customize the runner behavior, you can pass options:
         # runner_config = RealtimeRunConfig(async_tool_calls=False)
         # runner = RealtimeRunner(agent, config=runner_config)
@@ -47,38 +46,26 @@ class RealtimeWebSocketManager:
                 },
                 "instructions": agent.instructions,
                 "output_modalities": ["text"],
-                "input_audio_transcription": {
-                    "model": "whisper-1",
-                    "language": "en"
-            }}
+            }
         )
-        session = OpenAIConversationsSession()
+        session = await session_context.__aenter__()
+        if hasattr(session, "model"):
+            try:
+                await session.model.update_session(
+                    {
+                        "modalities": ["text"],
+                        "output_modalities": ["text"],
+                    }
+                )
+                print("✅ Session patched to text-only!")
+            except Exception as e:
+                print("⚠️ session.model.update_session failed:", e)
 
         self.active_sessions[session_id] = session
         self.session_contexts[session_id] = session_context
 
-        self.session_states[session_id] = {
-            "user1_genre": None,
-            "user1_location": None,
-            "user2_genre": None,
-            "user2_location": None,
-            "current_step": 0,  
-        }
+        # Start event processing task
         asyncio.create_task(self._process_events(session_id))
-        logger.info(f"✅ Session {session_id} connected with agent: {agent.name}")
-
-        await asyncio.sleep(0.5)  
-        await session.model.send_event(
-            RealtimeModelSendRawMessage(
-                message={
-                    "type": "response.create",
-                    "response": {
-                        "modalities": ["text"],
-                    },
-                }
-            )
-        )
-        logger.info("🎬 Requested initial greeting from agent")
 
     async def disconnect(self, session_id: str):
         if session_id in self.session_contexts:
@@ -88,9 +75,6 @@ class RealtimeWebSocketManager:
             del self.active_sessions[session_id]
         if session_id in self.websockets:
             del self.websockets[session_id]
-        if session_id in self.session_states:
-            del self.session_states[session_id]
-        logger.info(f"Session {session_id} disconnected")
 
     async def send_client_event(self, session_id: str, event: dict[str, Any]):
         session = self.active_sessions.get(session_id)
@@ -118,10 +102,10 @@ class RealtimeWebSocketManager:
         """Send a structured user message via the higher-level API."""
         session = self.active_sessions.get(session_id)
         if not session:
-            logger.warning("No active session for sending message")
             return
-        logger.info(f"Sending user message")
-        await session.send_message(message)
+        await session.send_message(
+            message
+        )  # delegates to RealtimeModelSendUserInput path
 
     async def interrupt(self, session_id: str) -> None:
         """Interrupt current model playback/response for a session."""
@@ -136,58 +120,13 @@ class RealtimeWebSocketManager:
             websocket = self.websockets[session_id]
 
             async for event in session:
-                event_type = event.type
-                logger.info(f"📨 MODEL EVENT: {event_type}")
+                print("MODEL SENT EVENT:", event, event.type)
 
                 if "audio" in event.type.lower():
-                    logger.debug(f"Skipping audio event: {event_type}")
                     continue
 
-                if event_type == "raw_model_event":
-                    if hasattr(event, "data") and hasattr(event.data, "data"):
-                        raw_data = event.data.data
-
-                        if isinstance(raw_data, dict):
-                            raw_event_type = raw_data.get("type", "")
-                            logger.info(f"  └─ Raw event type: {raw_event_type}")
-
-                            if raw_event_type == "response.output_text.delta":
-                                delta = raw_data.get("delta", "")
-                                if delta:
-                                    logger.info(
-                                        f"  └─ Text delta: {delta}"
-                                    )  # Add this to see the text
-                                    await websocket.send_text(
-                                        json.dumps(
-                                            {
-                                                "type": "assistant_response_delta",
-                                                "text": delta,
-                                            }
-                                        )
-                                    )
-
-                            elif raw_event_type == "response.output_text.done":
-                                text = raw_data.get("text", "")
-                                if text:
-                                    logger.info(
-                                        f"  └─ Complete text: {text}"
-                                    )  # Add this to see the full text
-                                    await websocket.send_text(
-                                        json.dumps(
-                                            {"type": "assistant_response", "text": text}
-                                        )
-                                    )
-
-                            elif event.type == "response.done":
-                                logger.info("  └─ Response complete")
-                                await websocket.send_text(
-                                    json.dumps({"type": "response_complete"})
-                                )
-
-                elif event_type == "history_updated":
-                    logger.debug(f"History updated, {len(event.history)} items")
-
-                elif event_type == "response.text.delta":
+                if event.type == "response.text.delta":
+                    # Incremental text from the model
                     if hasattr(event, "delta"):
                         await websocket.send_text(
                             json.dumps(
@@ -198,19 +137,120 @@ class RealtimeWebSocketManager:
                             )
                         )
 
-                elif event_type == "response.text.done":
+                elif event.type == "response.text.done":
+                    # Complete text response
                     if hasattr(event, "text"):
                         await websocket.send_text(
                             json.dumps(
                                 {"type": "assistant_response", "text": event.text}
                             )
                         )
-        except WebSocketDisconnect:
-            logger.info(f"🔌 WebSocket disconnected for session {session_id}")
-            await manager.disconnect(session_id)
+
+                elif event.type == "response.done":
+                    # Response complete
+                    await websocket.send_text(json.dumps({"type": "response_complete"}))
+
+                elif hasattr(event, "data"):
+                    # Try to extract text from event data
+                    data = event.data
+                    text = None
+
+                    if hasattr(data, "output_text"):
+                        text = data.output_text
+                    elif hasattr(data, "text"):
+                        text = data.text
+                    elif isinstance(data, dict):
+                        text = data.get("output_text") or data.get("text")
+
+                    if text:
+                        await websocket.send_text(
+                            json.dumps({"type": "assistant_response", "text": text})
+                        )
+
         except Exception as e:
             print(e)
             logger.error(f"Error processing events for session {session_id}: {e}")
+
+    # def _sanitize_history_item(self, item: RealtimeItem) -> dict[str, Any]:
+    #     """Remove large binary payloads from history items while keeping transcripts."""
+    #     item_dict = item.model_dump()
+    #     content = item_dict.get("content")
+    #     if isinstance(content, list):
+    #         sanitized_content: list[Any] = []
+    #         for part in content:
+    #             if isinstance(part, dict):
+    #                 sanitized_part = part.copy()
+    #                 sanitized_content.append(sanitized_part)
+    #             else:
+    #                 sanitized_content.append(part)
+    #         item_dict["content"] = sanitized_content
+    #     return item_dict
+
+    # async def _serialize_event(self, event: RealtimeSessionEvent) -> dict[str, Any]:
+    #     print("Incoming Realtime event type:", event.type)
+
+    #     base_event: dict[str, Any] = {
+    #         "type": event.type,
+    #     }
+
+    #     # if event.type == "agent_start":
+    #     #     base_event["agent"] = event.agent.name
+    #     # elif event.type == "agent_end":
+    #     #     base_event["agent"] = event.agent.name
+    #     # elif event.type == "handoff":
+    #     #     base_event["from"] = event.from_agent.name
+    #     #     base_event["to"] = event.to_agent.name
+    #     # elif event.type == "tool_start":
+    #     #     base_event["tool"] = event.tool.name
+    #     # elif event.type == "tool_end":
+    #     #     base_event["tool"] = event.tool.name
+    #     #     base_event["output"] = str(event.output)
+    #     # elif event.type == "audio_interrupted":
+    #     #     pass
+    #     # elif event.type == "history_updated":
+    #     #     base_event["history"] = [
+    #     #         self._sanitize_history_item(item) for item in event.history
+    #     #     ]
+    #     # elif event.type == "history_added":
+    #     #     # Provide the added item so the UI can render incrementally.
+    #     #     try:
+    #     #         base_event["item"] = self._sanitize_history_item(event.item)
+    #     #     except Exception:
+    #     #         base_event["item"] = None
+    #     # elif event.type == "guardrail_tripped":
+    #     #     base_event["guardrail_results"] = [
+    #     #         {"name": result.guardrail.name} for result in event.guardrail_results
+    #     #     ]
+
+    #     text = ""
+    #     if event.type == "raw_model_event" and not text:
+    #         return None
+
+    #     elif event.type == "raw_model_event":
+
+    #         if hasattr(event, "data") and hasattr(event.data, "data"):
+    #             payload = event.data.data
+
+    #             if isinstance(payload, dict):
+    #                 if "delta" in payload:
+    #                     text = payload["delta"]
+    #                 elif "output_text" in payload:
+    #                     text = payload["output_text"]
+    #                 elif "text" in payload:
+    #                     text = payload["text"]
+
+    #         base_event["raw_model_event"] = {"type": "assistant_response", "text": text}
+
+    #     elif event.type == "error":
+    #         base_event["error"] = (
+    #             str(event.error) if hasattr(event, "error") else "Unknown error"
+    #         )
+    #     elif event.type == "input_audio_timeout_triggered":
+    #         pass
+    #     else:
+    #         logger.warning(f"Skipping unsupported realtime event: {event.type}")
+
+    #     return base_event
 
 
 manager = RealtimeWebSocketManager()
@@ -233,16 +273,23 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             message = json.loads(data)
 
             if message["type"] == "text":
-                user_text = message["text"]
-                logger.info(f"💬 Received from user: {user_text}")
+                # agent = get_starting_agent()
 
-                user_message = RealtimeUserInputMessage(
-                    role="user",
-                    type="message",
-                    content=[{"type": "input_text", "text": user_text}],
+                await manager.send_user_message(
+                    session_id,
+                    RealtimeUserInputMessage(
+                        role="user",
+                        type="message",
+                        content=[{"type": "input_text", "text": message["text"]}],
+                    ),
                 )
 
-                await manager.send_user_message(session_id, user_message)
+                await manager.send_client_event(
+                    session_id,
+                    {
+                        "type": "response.create",
+                    },
+                )
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for session {session_id}")
@@ -255,6 +302,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 class CustomStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: Scope) -> FileResponse:
         response = await super().get_response(path, scope)
+        # Check if the file is a JavaScript file since the wrong mime-type is
+        # sometimes returned depending on the host OS
         print(f"path: ${path}")
         if path.endswith(".js"):
             response.headers["Content-Type"] = "application/javascript"

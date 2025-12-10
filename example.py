@@ -205,7 +205,7 @@ print(final_response)
 
 
 def extract_json_from_text(text):
-    match = re.search(r"(\{.*\})", text, re.DOTALL)
+    match = re.search(r"\{[\s\S]*?\}", text, re.DOTALL)
     if match:
         return json.loads(match.group(1))
     return None
