@@ -11,10 +11,6 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from agents import Runner, OpenAIConversationsSession
-from agents.realtime.config import RealtimeUserInputMessage
-from agents.realtime.items import RealtimeItem
-from agents.realtime.model import RealtimeModelConfig
-from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 
 from agent import get_starting_agent
 
@@ -23,10 +19,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class RealtimeWebSocketManager:
+class AgentsWebSocketManager:
     def __init__(self):
         self.active_sessions: dict[str, OpenAIConversationsSession] = {}
-        self.session_contexts: dict[str, Any] = {}
+        self.agents: dict[str, Any] = {}
         self.websockets: dict[str, WebSocket] = {}
         self.session_states: dict[str, dict] = {}
 
@@ -35,27 +31,10 @@ class RealtimeWebSocketManager:
         self.websockets[session_id] = websocket
 
         agent = get_starting_agent()
-        runner = Runner(agent)
-        # If you want to customize the runner behavior, you can pass options:
-        # runner_config = RealtimeRunConfig(async_tool_calls=False)
-        # runner = RealtimeRunner(agent, config=runner_config)
-        session_context = await runner.run(
-            model_config={
-                "initial_model_settings": {
-                    "voice_enabled": False,
-                    "modalities": ["text"],
-                },
-                "instructions": agent.instructions,
-                "output_modalities": ["text"],
-                "input_audio_transcription": {
-                    "model": "whisper-1",
-                    "language": "en"
-            }}
-        )
         session = OpenAIConversationsSession()
 
         self.active_sessions[session_id] = session
-        self.session_contexts[session_id] = session_context
+        self.agents[session_id] = agent
 
         self.session_states[session_id] = {
             "user1_genre": None,
@@ -64,156 +43,101 @@ class RealtimeWebSocketManager:
             "user2_location": None,
             "current_step": 0,  
         }
-        asyncio.create_task(self._process_events(session_id))
         logger.info(f"✅ Session {session_id} connected with agent: {agent.name}")
 
-        await asyncio.sleep(0.5)  
-        await session.model.send_event(
-            RealtimeModelSendRawMessage(
-                message={
-                    "type": "response.create",
-                    "response": {
-                        "modalities": ["text"],
-                    },
-                }
-            )
-        )
-        logger.info("🎬 Requested initial greeting from agent")
-
+        # Send initial greeting
+        asyncio.create_task(self._send_initial_greeting(session_id))
+    
     async def disconnect(self, session_id: str):
-        if session_id in self.session_contexts:
-            await self.session_contexts[session_id].__aexit__(None, None, None)
-            del self.session_contexts[session_id]
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
+        if session_id in self.agents:
+            del self.agents[session_id]
         if session_id in self.websockets:
             del self.websockets[session_id]
         if session_id in self.session_states:
             del self.session_states[session_id]
         logger.info(f"Session {session_id} disconnected")
 
-    async def send_client_event(self, session_id: str, event: dict[str, Any]):
+    async def send_user_message(self, session_id: str, message_text: str):
+        """Send a user message and stream the response."""
         session = self.active_sessions.get(session_id)
-        if not session:
-            print("No active realtime session!")
-            return
-
-        logger.info(f"Sending client event: {event['type']}")
-        if event["type"] == "response.create":
-            print("Requesting model response...")
-            await session.model.send_event(
-                RealtimeModelSendRawMessage(
-                    message={
-                        "type": "response.create",
-                        "response": {
-                            "modalities": ["text"],
-                        },
-                    }
-                )
-            )
-
-    async def send_user_message(
-        self, session_id: str, message: RealtimeUserInputMessage
-    ):
-        """Send a structured user message via the higher-level API."""
-        session = self.active_sessions.get(session_id)
-        if not session:
+        websocket = self.websockets.get(session_id)
+        
+        if not session or not websocket:
             logger.warning("No active session for sending message")
             return
-        logger.info(f"Sending user message")
-        await session.send_message(message)
+        
+        logger.info(f"Sending user message: {message_text}")
+        asyncio.create_task(self._run_agent_and_stream(session_id, message_text))
 
-    async def interrupt(self, session_id: str) -> None:
-        """Interrupt current model playback/response for a session."""
+    async def _send_initial_greeting(self, session_id: str):
+        """Send initial greeting from the agent."""
         session = self.active_sessions.get(session_id)
-        if not session:
+        websocket = self.websockets.get(session_id)
+        
+        if not session or not websocket:
             return
-        await session.interrupt()
+        
+        #  Trigger initial greeting with empty input
+        await self._run_agent_and_stream(session_id, "")
 
-    async def _process_events(self, session_id: str):
+    async def _run_agent_and_stream(self, session_id: str, user_input: str):
+        """Run the agent and stream the response."""
+        session = self.active_sessions.get(session_id)
+        agent = self.agents.get(session_id)
+        websocket = self.websockets.get(session_id)
+        
+        if not session or not agent or not websocket:
+            return
+        
         try:
-            session = self.active_sessions[session_id]
-            websocket = self.websockets[session_id]
-
-            async for event in session:
-                event_type = event.type
+            # Use Runner.run_streamed as a class method
+            result = Runner.run_streamed(agent, input=user_input, session=session)
+            async for event in result.stream_events():
+                event_type = getattr(event, "type", None)
                 logger.info(f"📨 MODEL EVENT: {event_type}")
-
-                if "audio" in event.type.lower():
-                    logger.debug(f"Skipping audio event: {event_type}")
-                    continue
-
-                if event_type == "raw_model_event":
-                    if hasattr(event, "data") and hasattr(event.data, "data"):
-                        raw_data = event.data.data
-
-                        if isinstance(raw_data, dict):
-                            raw_event_type = raw_data.get("type", "")
-                            logger.info(f"  └─ Raw event type: {raw_event_type}")
-
-                            if raw_event_type == "response.output_text.delta":
-                                delta = raw_data.get("delta", "")
-                                if delta:
-                                    logger.info(
-                                        f"  └─ Text delta: {delta}"
-                                    )  # Add this to see the text
-                                    await websocket.send_text(
-                                        json.dumps(
-                                            {
-                                                "type": "assistant_response_delta",
-                                                "text": delta,
-                                            }
-                                        )
-                                    )
-
-                            elif raw_event_type == "response.output_text.done":
-                                text = raw_data.get("text", "")
-                                if text:
-                                    logger.info(
-                                        f"  └─ Complete text: {text}"
-                                    )  # Add this to see the full text
-                                    await websocket.send_text(
-                                        json.dumps(
-                                            {"type": "assistant_response", "text": text}
-                                        )
-                                    )
-
-                            elif event.type == "response.done":
-                                logger.info("  └─ Response complete")
+                
+                # Handle raw_response_event with ResponseTextDeltaEvent
+                if event_type == "raw_response_event":
+                    data = getattr(event, "data", None)
+                    if data and hasattr(data, "delta"):
+                        await websocket.send_text(
+                            json.dumps({
+                                "type": "assistant_response_delta",
+                                "text": data.delta,
+                            })
+                        )
+                # Handle run_item_event for completion
+                elif event_type == "run_item_event":
+                    item = getattr(event, "item", None)
+                    if item and hasattr(item, "type"):
+                        if item.type == "message" and hasattr(item, "content"):
+                            # Extract text from message content
+                            text_parts = []
+                            if isinstance(item.content, list):
+                                for content_item in item.content:
+                                    if hasattr(content_item, "text"):
+                                        text_parts.append(content_item.text)
+                            text = "".join(text_parts)
+                            if text:
                                 await websocket.send_text(
-                                    json.dumps({"type": "response_complete"})
+                                    json.dumps({
+                                        "type": "assistant_response",
+                                        "text": text,
+                                    })
                                 )
-
-                elif event_type == "history_updated":
-                    logger.debug(f"History updated, {len(event.history)} items")
-
-                elif event_type == "response.text.delta":
-                    if hasattr(event, "delta"):
-                        await websocket.send_text(
-                            json.dumps(
-                                {
-                                    "type": "assistant_response_delta",
-                                    "text": event.delta,
-                                }
-                            )
-                        )
-
-                elif event_type == "response.text.done":
-                    if hasattr(event, "text"):
-                        await websocket.send_text(
-                            json.dumps(
-                                {"type": "assistant_response", "text": event.text}
-                            )
-                        )
-        except WebSocketDisconnect:
-            logger.info(f"🔌 WebSocket disconnected for session {session_id}")
-            await manager.disconnect(session_id)
+                # Handle run completion
+                elif event_type == "run_complete":
+                    await websocket.send_text(
+                        json.dumps({"type": "response_complete"})
+                    )
         except Exception as e:
-            print(e)
-            logger.error(f"Error processing events for session {session_id}: {e}")
+            logger.error(f"Error streaming response for session {session_id}: {e}", exc_info=True)
 
 
-manager = RealtimeWebSocketManager()
+
+manager = AgentsWebSocketManager()
 
 
 @asynccontextmanager
@@ -236,13 +160,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 user_text = message["text"]
                 logger.info(f"💬 Received from user: {user_text}")
 
-                user_message = RealtimeUserInputMessage(
-                    role="user",
-                    type="message",
-                    content=[{"type": "input_text", "text": user_text}],
-                )
-
-                await manager.send_user_message(session_id, user_message)
+                await manager.send_user_message(session_id, user_text)
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for session {session_id}")
