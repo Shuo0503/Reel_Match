@@ -15,10 +15,10 @@ My boyfriend and I kept getting stuck at the same point every date night: pickin
 ## How it works
 
 1. Both users open the same chat. The assistant greets them and asks each person, one question at a time, for their preferred genre and their location.
-2. Once it has all four answers, the agent runs **one** web search for movies currently playing near both locations.
-3. It replies with three recommendations, each with a movie title, a specific theater, and a short reason it's a good pick for both people.
+2. Once it has all four answers, it hands off to a recommendation agent. That agent opens the full showtime listings for a couple of theaters near both locations.
+3. It returns three picks as **structured JSON**: one in each person's genre, plus one that blends both. Each pick has a title, release date, theater and address, showtimes, and a reason it works for both people. The chat shows each pick as a card.
 
-Responses stream into the chat token by token over a WebSocket, so the conversation feels live instead of waiting on a full reply.
+The questions and replies stream into the chat token by token over a WebSocket, so the conversation feels live instead of waiting on a full reply.
 
 ## Tech stack
 
@@ -41,23 +41,52 @@ AWS ALB  (HTTPS on 443, TLS via ACM, WebSocket enabled)
 EKS: Service (ClusterIP :80) → Pod (FastAPI :3000)
    │
    ▼
-OpenAI Agents SDK  →  Movie Date Agent  →  Web search tool
+OpenAI Agents SDK  →  Movie Date Agent  ─handoff→  Recommendation Agent  →  Web search tool
+                                                         │
+                                                         ▼
+                                          MovieRecommendations (JSON)
 ```
 
 ### Backend (`app/server.py`)
 
 - **WebSocket session manager.** Each browser connection gets its own session ID, agent instance, and `OpenAIConversationsSession`, so conversation history is kept per session.
 - **Streaming.** The server runs the agent with `Runner.run_streamed` and forwards text deltas to the browser as `assistant_response_delta` events, followed by `response_complete` when the run ends.
+- **Structured results.** The recommendation agent's output is not streamed. The server sends it as a single `recommendations` event once the run finishes (see [Structured output](#structured-output)). Web searches and agent handoffs are sent as `tool_start` and `handoff` events for the side panel. If a run fails, the user gets an error message instead of a silent chat.
 - **Non-blocking runs.** Each agent run is started as its own `asyncio` task, so the WebSocket receive loop stays responsive while the model is working.
 - **Health check.** `GET /api/health` returns `200`. Kubernetes readiness/liveness probes and the ALB health check both use it.
 
-### Agent (`app/agent.py`)
+### Agents (`app/agent.py`)
 
-A single agent built with the OpenAI Agents SDK. Its instructions enforce a strict conversation flow (one question at a time, User 1 then User 2) and limit it to **one** web search after all answers are collected, which keeps latency and cost down. Recommendations must be real movies in current wide release, matched to both users' genres.
+Two agents built with the OpenAI Agents SDK:
 
-### Structured output prototype
+- **Movie Date Agent:** runs the conversation with a strict flow (one question at a time, User 1 then User 2). Once it has all four answers, it hands off.
+- **Recommendation Agent:** has the web search tool and `output_type=MovieRecommendations`, so its answer has to match a Pydantic schema. Today's date goes into its prompt so results stay current. It is required to search, with a cap of 8 tool calls per response; without the cap, the hosted search tool can loop. It's told to read whole theater listing pages instead of searching movie by movie, and to answer from what it found instead of asking the users for more.
 
-Before the real-time app, I prototyped the recommendation logic as a CLI script (`example.py`) using the OpenAI Responses API with web search. It returns a friendly explanation plus a JSON object (theaters, addresses, movies, ratings, showtimes, reasons). The schema lives in `JSON_schema.py`, a sample output is in `recommendation.json`, and the server exposes it at `GET /api/recommendation`.
+### Structured output
+
+The recommendations arrive as one WebSocket message:
+
+```json
+{
+  "type": "recommendations",
+  "data": {
+    "recommendations": [
+      {
+        "title": "Movie Title",
+        "release_date": "Oct 10, 2026",
+        "genre": "Comedy / Sci-fi",
+        "theater_name": "AMC Example 12",
+        "theater_address": "123 Main St, Brooklyn, NY",
+        "showtimes": ["Fri 7:30 PM", "Sat 4:15 PM"],
+        "reason": "Why it works for both of you"
+      }
+    ],
+    "closing_message": "Enjoy your movie date!"
+  }
+}
+```
+
+I first prototyped this as a CLI script that pulled a JSON block out of free text with a regex. The live app replaces that with schema-validated output from the Agents SDK. The server gets typed data, and the frontend renders it as cards.
 
 ## Deployment (AWS EKS)
 
@@ -108,5 +137,4 @@ docker run -p 3000:3000 -e OPENAI_API_KEY=your-key-here reel-match
 ## What I'd do next
 
 - **Shared session state:** Conversation state currently lives in memory on one pod. Scaling past one replica would need sticky sessions or a shared store such as Redis.
-- **Structured output in the live app:** Bring the JSON schema from the prototype into the agent so the UI can render recommendations as cards instead of plain text.
 - **Cheaper hosting for the demo:** Run a single container on a lower-cost host so there's always a live demo, and keep EKS for when it needs to scale.
