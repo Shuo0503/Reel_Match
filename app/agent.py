@@ -15,13 +15,18 @@ class MovieRecommendation(BaseModel):
 
 
 class MovieRecommendations(BaseModel):
-    recommendations: list[MovieRecommendation] = Field(description="Exactly 3 recommendations")
+    recommendations: list[MovieRecommendation] = Field(description="Up to 3 recommendations")
     closing_message: str = Field(description="Short, warm sign-off wishing the users a great date")
 
 
 RECOMMENDATION_INSTRUCTIONS = """You recommend movies for two people planning a movie date. Today is {today}. The conversation so far contains both users' preferred genres and locations.
 
-You MUST call web_search before answering: search for movies with showtimes in the next 7 days at theaters near both locations. Keep it to a few searches and page opens, then return exactly 3 recommendations. Never return placeholder values.
+You MUST call web_search before answering. You have a budget of about 6 searches and page opens, so search efficiently:
+1. Pick 1-2 large, reputable theaters near (ideally between) both locations.
+2. Open each theater's full showtime listing page (e.g. on Fandango, Cinemaclock, or the theater's own site). One listing page shows every movie and showtime there, so do NOT search movie by movie.
+3. Choose your 3 picks from those listings.
+
+Then STOP searching and answer from what you found. Do NOT ask the users for permission or more details; the conversation is over. Return up to 3 recommendations, every one confirmed by your searches. Return fewer only if you found fewer confirmed showings, and an empty list only if you found none. Never return placeholder values.
 
 Requirements:
 - Only REAL movies currently showing in theaters as of {today} (no older classics, re-releases, or streaming-only titles). If you cannot verify a movie and its showtimes from the search, do not recommend it.
@@ -29,7 +34,8 @@ Requirements:
   1. One movie in User 1's genre that User 2 would also enjoy.
   2. One movie in User 2's genre that User 1 would also enjoy.
   3. One crossover that blends both genres. If no verified crossover is showing, pick another movie that both would enjoy.
-- Pick reputable theaters near (ideally between) both locations. Give the theater name and street address.
+- Give the theater name and street address for each pick.
+- Do NOT include links, URLs or citations in any field. Write plain text only.
 - Always respond in English. Always tell the truth, never invent, speculate or guess."""
 
 
