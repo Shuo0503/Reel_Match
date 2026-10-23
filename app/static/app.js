@@ -1,12 +1,9 @@
-class RealtimeDemo {
+class ReelMatchApp {
   constructor() {
     this.ws = null;
     this.isConnected = false;
-    this.stream = null;
     this.sessionId = this.generateSessionId();
 
-    this.messageNodes = new Map(); 
-    this.seenItemIds = new Set(); 
     this.currentAssistantMessage = null;
 
     this.initializeElements();
@@ -138,20 +135,6 @@ class RealtimeDemo {
     }
   }
 
-  completeAssistantMessage(text) {
-    if (this.currentAssistantMessage) {
-      const bubble =
-        this.currentAssistantMessage.querySelector(".message-bubble");
-      if (bubble && text) {
-        bubble.textContent = text;
-      }
-      this.currentAssistantMessage = null;
-    } else {
-      this.addMessage("assistant", text);
-    }
-    this.scrollToBottom();
-  }
-
   handleRealtimeEvent(event) {
     this.addRawEvent(event);
 
@@ -173,113 +156,55 @@ class RealtimeDemo {
         }
         break;
 
-      case "assistant_response":
-        // Complete response
-        if (event.text) {
-          this.completeAssistantMessage(event.text);
-        }
-        break;
-
       case "response_complete":
         // Response finished
         console.log("✅ Response complete");
         this.currentAssistantMessage = null;
         break;
-      
-      case "history_updated":
-        this.syncMissingFromHistory(event.history);
-        this.updateLastMessageFromHistory(event.history);
-        break;
 
-      case "history_added":
-        if (event.item) {
-          this.addMessageFromItem(event.item);
-        }
+      case "recommendations":
+        this.addRecommendations(event.data);
         break;
     }
   }
-  updateLastMessageFromHistory(history) {
-    if (!history || !Array.isArray(history) || history.length === 0) return;
-    // Find the last message item in history
-    let last = null;
-    for (let i = history.length - 1; i >= 0; i--) {
-      const it = history[i];
-      if (it && it.type === "message") {
-        last = it;
-        break;
-      }
+
+  addRecommendations(data) {
+    const list = document.createElement("div");
+    list.className = "recommendations";
+
+    data.recommendations.forEach((rec, i) => {
+      const card = document.createElement("div");
+      card.className = "recommendation-card";
+
+      const title = document.createElement("div");
+      title.className = "recommendation-title";
+      title.textContent = `${i + 1}. ${rec.title} (${rec.release_date})`;
+
+      const genre = document.createElement("div");
+      genre.className = "recommendation-genre";
+      genre.textContent = rec.genre;
+
+      const theater = document.createElement("div");
+      theater.className = "recommendation-theater";
+      theater.textContent = `📍 ${rec.theater_name}, ${rec.theater_address}`;
+
+      const showtimes = document.createElement("div");
+      showtimes.className = "recommendation-showtimes";
+      showtimes.textContent = `🕒 ${rec.showtimes.join(" · ")}`;
+
+      const reason = document.createElement("div");
+      reason.className = "recommendation-reason";
+      reason.textContent = rec.reason;
+
+      card.append(title, genre, theater, showtimes, reason);
+      list.appendChild(card);
+    });
+
+    this.messagesContent.appendChild(list);
+    if (data.closing_message) {
+      this.addMessage("assistant", data.closing_message);
     }
-    if (!last) return;
-
-    const itemId = last.item_id;
-    let text = "";
-
-    if (Array.isArray(last.content)) {
-      for (const part of last.content) {
-        if (!part || typeof part !== "object") continue;
-        if (part.type === "text" && part.text) text += part.text;
-        else if (part.type === "input_text" && part.text) text += part.text;
-        else if (
-          (part.type === "input_audio" || part.type === "audio") &&
-          part.transcript
-        )
-          text += part.transcript;
-      }
-    }
-
-    const node = this.messageNodes.get(itemId);
-    if (!node) {
-      this.addMessageFromItem(last);
-      return;
-    }
-
-    const bubble = node.querySelector(".message-bubble");
-    if (bubble && text && text.trim()) {
-      bubble.textContent = text.trim();
-      this.scrollToBottom();
-    }
-  }
-
-  syncMissingFromHistory(history) {
-    if (!history || !Array.isArray(history)) return;
-    for (const item of history) {
-      if (!item || item.type !== "message") continue;
-      const id = item.item_id;
-      if (!id) continue;
-      if (!this.seenItemIds.has(id)) {
-        this.addMessageFromItem(item);
-      }
-    }
-  }
-
-  addMessageFromItem(item) {
-    try {
-      if (!item || item.type !== "message") return;
-      let content = "";
-
-      if (Array.isArray(item.content)) {
-        for (const contentPart of item.content) {
-          if (!contentPart || typeof contentPart !== "object") continue;
-          if (contentPart.type === "text" && contentPart.text) {
-            content += contentPart.text;
-          } else if (contentPart.type === "input_text" && contentPart.text) {
-            content += contentPart.text;
-          }
-        }
-      }
-
-      if (content) {
-        const role = item.role === "user" ? "user" : "assistant";
-        const node = this.addMessage(role, content);
-
-        if (node && item.item_id) {
-          this.messageNodes.set(item.item_id, node);
-          this.seenItemIds.add(item.item_id);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to add message from item:", e, item);
-    }
+    this.scrollToBottom();
   }
 
   addMessage(type, content) {
@@ -370,7 +295,7 @@ class RealtimeDemo {
   }
 }
 
-// Initialize the demo when the page loads
+// Initialize the app when the page loads
 document.addEventListener("DOMContentLoaded", () => {
-  new RealtimeDemo();
+  new ReelMatchApp();
 });

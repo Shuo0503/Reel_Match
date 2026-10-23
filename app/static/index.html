@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Realtime Demo</title>
+    <title>Reel Match</title>
     <style>
         * {
             margin: 0;
@@ -110,6 +110,45 @@
             color: #333;
         }
         
+        .recommendations {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            max-width: 85%;
+        }
+
+        .recommendation-card {
+            background: white;
+            border: 1px solid #e1e5e9;
+            border-left: 4px solid #6f42c1;
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            color: #333;
+        }
+
+        .recommendation-title {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .recommendation-genre {
+            color: #6f42c1;
+            font-size: 0.8rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .recommendation-theater,
+        .recommendation-showtimes {
+            color: #555;
+        }
+
+        .recommendation-reason {
+            margin-top: 0.4rem;
+            font-style: italic;
+        }
+
         .right-column {
             flex: 1;
             display: flex;
@@ -252,7 +291,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>Realtime Demo</h1>
+        <h1>🎬 Reel Match</h1>
         <button id="connectBtn" class="connect-btn disconnected">Connect</button>
     </div>
     
